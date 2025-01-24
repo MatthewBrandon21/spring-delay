@@ -1,0 +1,33 @@
+version: "3.8"
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.4.1
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:7.4.1
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+    ports:
+      - "9092:9092"
+
+  create-topics:
+    image: confluentinc/cp-kafka:7.4.1
+    container_name: kafka-topics-init
+    depends_on:
+      - kafka
+    entrypoint: >
+      sh -c "
+        kafka-topics --create --topic main-topic --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 &&
+        kafka-topics --create --topic delay-topic --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1
+      "
