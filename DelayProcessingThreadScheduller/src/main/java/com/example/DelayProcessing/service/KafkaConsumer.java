@@ -18,6 +18,6 @@ public class KafkaConsumer {
     @KafkaListener(topics = Constants.DELAY_TOPIC, groupId = Constants.CONSUMER_GROUP_NAME)
     public void consumerMessageDelayTopic(String message) {
         System.out.println("Consumed message from delay topic : " + message);
-        delayService.scheduleTask(message, 10);
+        delayService.scheduleTask(message, Constants.DELAY_VALUE);
     }
 }

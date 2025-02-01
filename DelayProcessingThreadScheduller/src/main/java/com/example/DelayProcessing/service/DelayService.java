@@ -1,9 +1,11 @@
 package com.example.DelayProcessing.service;
 
+import com.example.DelayProcessing.config.Constants;
 import com.example.DelayProcessing.model.ScheduledTask;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskScheduler;
 import org.springframework.stereotype.Service;
 
@@ -17,6 +19,9 @@ import java.util.concurrent.ScheduledFuture;
 
 @Service
 public class DelayService {
+    @Autowired
+    private KafkaTemplate<String, String> kafkaTemplate;
+
     private final ThreadPoolTaskScheduler taskScheduler;
     private final List<ScheduledTask> pendingTasks = new ArrayList<>();
     private static final String TASKS_FILE = "tasks.json";
@@ -38,6 +43,7 @@ public class DelayService {
 
     public void executeTask(ScheduledTask task) {
         System.out.println("Executing task: " + task.taskName);
+        kafkaTemplate.send(Constants.TOPIC, task.taskName);
         pendingTasks.remove(task);
         saveTasks();
     }
@@ -54,7 +60,6 @@ public class DelayService {
         try {
             if (Files.exists(Paths.get(TASKS_FILE))) {
                 List<ScheduledTask> tasks = objectMapper.readValue(new File(TASKS_FILE), new TypeReference<>() {});
-                System.out.println("here 1" + tasks);
                 for (ScheduledTask task : tasks) {
                     System.out.println(task);
                     if (task.getExecuteAt() > Instant.now().getEpochSecond()) {
