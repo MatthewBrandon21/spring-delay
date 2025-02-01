@@ -22,9 +22,10 @@ public class KafkaConsumer {
     @KafkaListener(topics = Constants.DELAY_TOPIC, groupId = Constants.CONSUMER_GROUP_NAME)
     public void consumerMessageDelayTopic(String message) {
         System.out.println("Consumed message from delay topic : " + message);
+
         // Add task to Redis min-heap with 15-minute delay
         long expirationTime = System.currentTimeMillis() + 15 * 1000;
-        redisTemplate.opsForZSet().add(Constants.MIN_HEAP_KEY, message, expirationTime);
+        redisTemplate.opsForZSet().add(Constants.MIN_HEAP_DELAY_RECORD_KEY, message, expirationTime);
 
         // Trigger task processing
         poolingService.processTasks();

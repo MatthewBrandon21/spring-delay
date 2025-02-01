@@ -18,32 +18,36 @@ public class PoolingService {
     @Autowired
     private KafkaTemplate<String, String> kafkaTemplate;
 
+    // Limit only 2 thread for pooling the task
     private final ExecutorService executorService = Executors.newFixedThreadPool(2);
 
     public void processTasks() {
         executorService.submit(() -> {
             while (true) {
-                System.out.println("Pooling Running");
+                System.out.println("Pooling Service is running on :" + Thread.currentThread().getName());
+
                 // Fetch the task with the earliest expiration time
-                Set<String> tasks = redisTemplate.opsForZSet().rangeByScore(Constants.MIN_HEAP_KEY, 0,
-                        System.currentTimeMillis(), 0, 1);
+                Set<String> tasks = redisTemplate.opsForZSet().range(Constants.MIN_HEAP_DELAY_RECORD_KEY, 0, -1);
+
                 if (tasks == null || tasks.isEmpty()) {
-                    System.out.println(tasks);
-                    System.out.println("exiting");
-                    break; // No tasks left
+                    // No tasks left, stop pooling
+                    System.out.println("Task empty, exiting");
+                    break;
                 }
 
+                System.out.println("Task pending count : " + (long) tasks.size());
+
                 String task = tasks.iterator().next();
-                String lockKey = Constants.LOCK_KEY_PREFIX + task;
+                String lockKey = Constants.LOCK_KEY_DELAY_RECORD_PREFIX + task;
 
                 // Try to acquire a lock on the task
                 if (redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", Duration.ofSeconds(10))) {
                     try {
-                        Double score = redisTemplate.opsForZSet().score(Constants.MIN_HEAP_KEY, task);
+                        Double score = redisTemplate.opsForZSet().score(Constants.MIN_HEAP_DELAY_RECORD_KEY, task);
                         if (score != null && score <= System.currentTimeMillis()) {
                             // Task is expired, publish it and remove it from Redis
                             kafkaTemplate.send("main-topic", task);
-                            redisTemplate.opsForZSet().remove(Constants.MIN_HEAP_KEY, task);
+                            redisTemplate.opsForZSet().remove(Constants.MIN_HEAP_DELAY_RECORD_KEY, task);
                             System.out.println("Processed expired task: " + task);
                         } else {
                             // Task is not expired, release the lock and sleep
@@ -52,11 +56,13 @@ public class PoolingService {
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     } finally {
-                        redisTemplate.delete(lockKey); // Release the lock
+                        // Release the lock
+                        redisTemplate.delete(lockKey);
                     }
                 } else {
                     try {
-                        Thread.sleep(1000); // Wait before trying again
+                        // Sleep little bit
+                        Thread.sleep(1000);
                     } catch (InterruptedException e) {
                         throw new RuntimeException(e);
                     }
