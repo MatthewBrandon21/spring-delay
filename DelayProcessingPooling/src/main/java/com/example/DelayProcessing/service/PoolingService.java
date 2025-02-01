@@ -37,35 +37,34 @@ public class PoolingService {
 
                 System.out.println("Task pending count : " + (long) tasks.size());
 
-                String task = tasks.iterator().next();
-                String lockKey = Constants.LOCK_KEY_DELAY_RECORD_PREFIX + task;
+                for (String task : tasks) {
+                    String lockKey = Constants.LOCK_KEY_DELAY_RECORD_PREFIX + task;
 
-                // Try to acquire a lock on the task
-                if (redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", Duration.ofSeconds(10))) {
-                    try {
-                        Double score = redisTemplate.opsForZSet().score(Constants.MIN_HEAP_DELAY_RECORD_KEY, task);
-                        if (score != null && score <= System.currentTimeMillis()) {
-                            // Task is expired, publish it and remove it from Redis
-                            kafkaTemplate.send("main-topic", task);
-                            redisTemplate.opsForZSet().remove(Constants.MIN_HEAP_DELAY_RECORD_KEY, task);
-                            System.out.println("Processed expired task: " + task);
-                        } else {
-                            // Task is not expired, release the lock and sleep
-                            Thread.sleep(1000);
+                    // Try to acquire a lock on the task
+                    if (redisTemplate.opsForValue().setIfAbsent(lockKey, "locked", Duration.ofSeconds(10))) {
+                        try {
+                            Double score = redisTemplate.opsForZSet().score(Constants.MIN_HEAP_DELAY_RECORD_KEY, task);
+                            if (score != null && score <= System.currentTimeMillis()) {
+                                // Task is expired, publish it and remove it from Redis
+                                kafkaTemplate.send("main-topic", task);
+                                redisTemplate.opsForZSet().remove(Constants.MIN_HEAP_DELAY_RECORD_KEY, task);
+                                System.out.println("Processed expired task: " + task);
+                            }
+                        } catch (Exception e) {
+                            System.out.println("Error while processing task, Error :" + e.getMessage());
+                        } finally {
+                            // Release the lock
+                            redisTemplate.delete(lockKey);
                         }
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    } finally {
-                        // Release the lock
-                        redisTemplate.delete(lockKey);
+                        break;
                     }
-                } else {
-                    try {
-                        // Sleep little bit
-                        Thread.sleep(1000);
-                    } catch (InterruptedException e) {
-                        throw new RuntimeException(e);
-                    }
+                }
+
+                // Sleep little bit
+                try {
+                    Thread.sleep(1000);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
                 }
             }
         });
