@@ -17,15 +17,12 @@ import org.springframework.kafka.listener.adapter.AbstractDelegatingMessageListe
 import org.springframework.kafka.support.Acknowledgment;
 
 public class DelayedMessageListenerAdapter<K, V> extends AbstractDelegatingMessageListenerAdapter<MessageListener<K, V>> implements AcknowledgingConsumerAwareMessageListener<K, V> {
-    private static final Duration DEFAULT_DELAY_VALUE = Duration.of(0, ChronoUnit.SECONDS);
-
-    private final String listenerId;
-
-    private final KafkaConsumerBackoffManager kafkaConsumerBackoffManager;
-
-    private final Map<String, Duration> delaysPerTopic = new ConcurrentHashMap<>();
-
+    // Default delay duration if topic is not configured
+    private static final Duration DEFAULT_DELAY_VALUE = Duration.of(Constants.DEFAULT_DELAY_DURATION, ChronoUnit.SECONDS);
     private Duration defaultDelay = DEFAULT_DELAY_VALUE;
+    private final String listenerId;
+    private final KafkaConsumerBackoffManager kafkaConsumerBackoffManager;
+    private final Map<String, Duration> delaysPerTopic = new ConcurrentHashMap<>();
 
     public DelayedMessageListenerAdapter(MessageListener<K, V> delegate, KafkaConsumerBackoffManager kafkaConsumerBackoffManager, String listenerId) {
         super(delegate);
@@ -35,12 +32,34 @@ public class DelayedMessageListenerAdapter<K, V> extends AbstractDelegatingMessa
         this.listenerId = listenerId;
     }
 
+    // Kafka onMessage Wrapper
     @Override
     public void onMessage(ConsumerRecord<K, V> consumerRecord, Acknowledgment acknowledgment, Consumer<?, ?> consumer) throws KafkaBackoffException {
+        // Calculate if topic need to be paused
+        // (message produced timestamp + delay value > time now -> delayed // else not delay)
         this.kafkaConsumerBackoffManager.backOffIfNecessary(createContext(consumerRecord, consumerRecord.timestamp() +
-                delaysPerTopic.getOrDefault(consumerRecord.topic(), this.defaultDelay)
-                        .toMillis(), consumer));
+                delaysPerTopic.getOrDefault(consumerRecord.topic(), this.defaultDelay).toMillis(), consumer));
         invokeDelegateOnMessage(consumerRecord, acknowledgment, consumer);
+    }
+
+    @Override
+    public void onMessage(ConsumerRecord<K, V> data) {
+        onMessage(data, null, null);
+    }
+
+    @Override
+    public void onMessage(ConsumerRecord<K, V> data, Acknowledgment acknowledgment) {
+        onMessage(data, acknowledgment, null);
+    }
+
+    @Override
+    public void onMessage(ConsumerRecord<K, V> data, Consumer<?, ?> consumer) {
+        onMessage(data, null, consumer);
+    }
+
+    private KafkaConsumerBackoffManager.Context createContext(ConsumerRecord<K, V> data, long nextExecutionTimestamp, Consumer<?, ?> consumer) {
+        return this.kafkaConsumerBackoffManager.createContext(nextExecutionTimestamp, this.listenerId, new TopicPartition(data.topic(), data.partition()),
+                consumer);
     }
 
     public void setDelayForTopic(String topic, Duration delay) {
@@ -70,25 +89,5 @@ public class DelayedMessageListenerAdapter<K, V> extends AbstractDelegatingMessa
             case SIMPLE:
                 this.delegate.onMessage(consumerRecord);
         }
-    }
-
-    private KafkaConsumerBackoffManager.Context createContext(ConsumerRecord<K, V> data, long nextExecutionTimestamp, Consumer<?, ?> consumer) {
-        return this.kafkaConsumerBackoffManager.createContext(nextExecutionTimestamp, this.listenerId, new TopicPartition(data.topic(), data.partition()),
-                consumer);
-    }
-
-    @Override
-    public void onMessage(ConsumerRecord<K, V> data) {
-        onMessage(data, null, null);
-    }
-
-    @Override
-    public void onMessage(ConsumerRecord<K, V> data, Acknowledgment acknowledgment) {
-        onMessage(data, acknowledgment, null);
-    }
-
-    @Override
-    public void onMessage(ConsumerRecord<K, V> data, Consumer<?, ?> consumer) {
-        onMessage(data, null, consumer);
     }
 }
